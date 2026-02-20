@@ -1,253 +1,213 @@
 <!DOCTYPE html>
-<html lang="zh">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>生命与织体</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.7.0/p5.min.js"></script>
+    <title>Claude Monet - Lily Pads Particles</title>
     <style>
-        body { margin: 0; padding: 0; overflow: hidden; background: #111; }
+        body { margin: 0; overflow: hidden; background: #000; }
+        canvas { display: block; }
     </style>
 </head>
 <body>
+<script src="https://cdn.jsdelivr.net/npm/three@0.132.2/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.132.2/examples/js/postprocessing/EffectComposer.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.132.2/examples/js/postprocessing/RenderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.132.2/examples/js/postprocessing/UnrealBloomPass.js"></script>
 <script>
-// 特点：高明度，低饱和度，色彩斑斓但柔和
-const monetColors = [
-    [330, 30, 90], // 柔和的灰粉
-    [210, 25, 85], // 灰蓝
-    [30, 50, 90],  // 淡金/奶油
-    [120, 20, 80], // 灰绿
-    [270, 25, 85], // 藕荷色
-    [60, 40, 85]   // 黄绿
-];
+    // --- 场景初始化 ---
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(window.devicePixelRatio);
+    document.body.appendChild(renderer.domElement);
 
-let particles = [];
-let flowField = []; // 用于存储噪声场
-let zOff = 0; // 3D噪声的z轴偏移，控制整体流动
-let scale = 20; // 噪声场的分辨率
-let hueShift = 0; // 用于模拟时间流逝的色相偏移
+    // --- 相机位置 ---
+    camera.position.z = 30;
 
-function setup() {
-    createCanvas(windowWidth, windowHeight);
-    colorMode(HSB, 360, 100, 100, 1);
-    background(20, 10, 10);
-    
-    // 初始化噪声场
-    let xoff = 0;
-    for (let x = 0; x < width; x += scale) {
-        let yoff = 0;
-        for (let y = 0; y < height; y += scale) {
-            let r = noise(xoff, yoff, zOff) * TWO_PI;
-            let v = p5.Vector.fromAngle(r);
-            v.setMag(0.5);
-            flowField.push(v);
-            yoff += 0.1;
-        }
-        xoff += 0.1;
-    }
+    // --- 配色 ---
+    const colors = [
+        new THREE.Color(0.1, 0.1, 0.3),   // 深蓝夜空
+        new THREE.Color(0.2, 0.4, 0.6),   // 水波蓝
+        new THREE.Color(0.8, 0.6, 0.9),   // 柔和紫光
+        new THREE.Color(0.9, 0.9, 0.4),   // 柠檬黄光
+        new THREE.Color(0.1, 0.3, 0.2),   // 暗绿荷叶
+    ];
 
-    // 初始生成粒子
-    for (let i = 0; i < 400; i++) {
-        particles.push(new LifeParticle());
-    }
-}
-
-function draw() {
-    // 半透明覆盖层，产生长曝光效果
-    fill(20, 10, 10, 0.05);
-    rect(0, 0, width, height);
-
-    // 更新噪声场（模拟音乐的流动）
-    zOff += 0.005;
-    let xoff = 0;
-    let index = 0;
-    for (let x = 0; x < width; x += scale) {
-        let yoff = 0;
-        for (let y = 0; y < height; y += scale) {
-            let r = noise(xoff, yoff, zOff) * TWO_PI;
-            let v = p5.Vector.fromAngle(r);
-            // 随机性控制：根据音乐织体改变力场强度
-            let strength = map(noise(xoff * 0.5, yoff * 0.5, zOff), 0, 1, 0.2, 1.5);
-            v.setMag(strength);
-            flowField[index] = v;
-            yoff += 0.1;
-            index++;
-        }
-        xoff += 0.1;
-    }
-
-    // 更新和显示所有粒子
-    for (let i = particles.length - 1; i >= 0; i--) {
-        let p = particles[i];
+    // --- 生成噪波纹理 (模拟颗粒感) ---
+    function generateTexture() {
+        const canvas = document.createElement('canvas');
+        canvas.width = 32;
+        canvas.height = 32;
+        const ctx = canvas.getContext('2d');
         
-        // 1. 获取力场方向 (模拟音乐的引导)
-        let vx = floor(p.pos.x / scale);
-        let vy = floor(p.pos.y / scale);
-        let vIndex = vy * floor(width / scale) + vx;
-        if (flowField[vIndex]) {
-            p.follow(flowField[vIndex]);
-        }
-
-        // 2. 粒子间相互作用 (模拟织体密度)
-        p.interact(particles);
-
-        // 3. 更新生命状态
-        p.update();
-
-        // 4. 视觉呈现
-        p.show();
-
-        // 5. 生命周期管理：死亡与重生 (模拟呼吸)
-        if (p.isDead()) {
-            // 死亡后在中心重生，模拟花朵枯萎后种子再生
-            p.rebirth();
-        }
-    }
-
-    // 动态标题显示（可选）
-    // fill(240, 50, 90, 0.5);
-    // noStroke();
-    // textSize(16);
-    // text("聆听色彩的呼吸...", 20, 20);
-}
-
-// 粒子类：代表一个具有生命周期的生命体
-class LifeParticle {
-    constructor() {
-        // 初始聚集在中心（聚合态）
-        this.pos = createVector(width / 2 + random(-10, 10), height / 2 + random(-10, 10));
-        this.vel = p5.Vector.random2D();
-        this.vel.mult(random(0.5, 2));
-        this.acc = createVector(0, 0);
+        // 绘制中心亮、边缘暗的圆形，模拟颗粒
+        const gradient = ctx.createRadialGradient(16, 16, 0, 16, 16, 16);
+        gradient.addColorStop(0, 'white');
+        gradient.addColorStop(1, 'transparent');
         
-        // 生命属性
-        this.life = 0; // 生命计时器
-        this.maxLife = random(300, 800); // 随机寿命，模拟不同生长周期
-        this.birthTime = frameCount;
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, 32, 32);
         
-        // 视觉属性
-        this.size = random(2, 6);
-        this.baseHue = random([60, 120, 210, 330]); // 从莫奈色盘中随机选择基础色相
-        this.isBloomed = false; // 是否已经绽放
+        // 添加一点噪点颗粒感
+        for(let i=0; i<100; i++) {
+            const x = Math.random() * 32;
+            const y = Math.random() * 32;
+            ctx.fillStyle = `rgba(${Math.random()*255},${Math.random()*255},${Math.random()*255},0.5)`;
+            ctx.fillRect(x, y, 1, 1);
+        }
+        
+        return new THREE.CanvasTexture(canvas);
     }
 
-    // 遵循力场
-    follow(vector) {
-        let steer = p5.Vector.sub(vector, this.vel);
-        steer.limit(0.1);
-        this.acc.add(steer);
+    // --- 粒子系统 ---
+    const particleCount = 8000;
+    const geometry = new THREE.BufferGeometry();
+    const positions = new Float32Array(particleCount * 3);
+    const sizes = new Float32Array(particleCount);
+    const colorArray = new Float32Array(particleCount * 3);
+    const alphas = new Float32Array(particleCount); // 控制透明度变化
+
+    for (let i = 0; i < particleCount; i++) {
+        const i3 = i * 3;
+        // 随机位置 (球形分布)
+        const theta = Math.random() * Math.PI * 2;
+        const phi = Math.random() * Math.PI;
+        const radius = Math.random() * 15 + 5;
+        
+        positions[i3] = Math.sin(phi) * Math.cos(theta) * radius;
+        positions[i3 + 1] = Math.sin(phi) * Math.sin(theta) * radius;
+        positions[i3 + 2] = Math.cos(phi) * radius;
+
+        // 随机大小 (大小变化)
+        sizes[i] = Math.random() * 3 + 0.5;
+
+        // 随机颜色
+        const col = colors[Math.floor(Math.random() * colors.length)];
+        colorArray[i3] = col.r;
+        colorArray[i3 + 1] = col.g;
+        colorArray[i3 + 2] = col.b;
+
+        // 初始透明度
+        alphas[i] = 1.0;
     }
 
-    // 粒子间相互作用（模拟音乐的织体：重复与和声）
-    interact(others) {
-        let repel = createVector(0, 0);
-        let align = createVector(0, 0);
-        let count = 0;
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute('color', new THREE.BufferAttribute(colorArray, 3));
+    geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+    geometry.setAttribute('alpha', new THREE.BufferAttribute(alphas, 1));
 
-        for (let other of others) {
-            let d = p5.Vector.dist(this.pos, other.pos);
-            
-            // 排斥力：防止过度拥挤（模拟音符的清晰度）
-            if (d > 0 && d < 30) {
-                let force = p5.Vector.sub(this.pos, other.pos);
-                force.div(d); 
-                repel.add(force);
+    // --- 着色器材质 (核心：立体光影 + 残影) ---
+    const material = new THREE.ShaderMaterial({
+        uniforms: {
+            pointTexture: { value: generateTexture() },
+            time: { value: 0.0 }
+        },
+        vertexShader: `
+            attribute float size;
+            attribute vec3 color;
+            attribute float alpha;
+            varying vec3 vColor;
+            varying float vAlpha;
+            void main() {
+                vColor = color;
+                vAlpha = alpha;
+                vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+                // 根据距离调整大小，产生透视感
+                gl_PointSize = size * (100.0 / -mvPosition.z);
+                gl_Position = projectionMatrix * mvPosition;
             }
-            
-            // 对齐：模拟音乐动机的重复
-            if (d > 30 && d < 80) {
-                align.add(other.vel);
-                count++;
+        `,
+        fragmentShader: `
+            uniform sampler2D pointTexture;
+            varying vec3 vColor;
+            varying float vAlpha;
+            void main() {
+                vec4 texColor = texture2D(pointTexture, gl_PointCoord);
+                // 立体光照模拟：中心亮，边缘暗
+                float r = gl_PointCoord.x - 0.5;
+                float s = gl_PointCoord.y - 0.5;
+                float dist = length(vec2(r, s));
+                float centerGlow = 1.0 - smoothstep(0.4, 0.5, dist);
+                
+                // 残影效果：根据 alpha 值控制辉光
+                gl_FragColor = vec4(vColor, vAlpha * texColor.a * centerGlow);
+                // 模拟璀璨消亡：当 alpha 低时，增加一点亮光
+                if(vAlpha < 0.3) {
+                    gl_FragColor.rgb += 0.5 * (1.0 - vAlpha); // 消亡时更亮
+                }
+            }
+        `,
+        blending: THREE.AdditiveBlending,
+        depthTest: true,
+        transparent: true,
+        vertexColors: true
+    });
+
+    const particles = new THREE.Points(geometry, material);
+    scene.add(particles);
+
+    // --- 后期处理：辉光 (Bloom) ---
+    const composer = new EffectComposer(renderer);
+    const renderPass = new RenderPass(scene, camera);
+    composer.addPass(renderPass);
+
+    const bloomPass = new UnrealBloomPass(
+        new THREE.Vector2(window.innerWidth, window.innerHeight),
+        1.5, // 强度
+        0.4, // 半径
+        0.85 // 阈值
+    );
+    composer.addPass(bloomPass);
+
+    // --- 动画控制 ---
+    let time = 0;
+    function animate() {
+        requestAnimationFrame(animate);
+        
+        time += 0.005;
+        material.uniforms.time.value = time;
+
+        // 缓慢旋转
+        particles.rotation.y += 0.0005;
+        particles.rotation.x += 0.0002;
+
+        // 粒子消亡与重生逻辑 (模拟残影渐渐消亡)
+        const alphaAttribute = geometry.attributes.alpha;
+        const positionArray = geometry.attributes.position.array;
+        
+        for (let i = 0; i < alphaAttribute.count; i++) {
+            // 随机缓慢降低透明度 (消亡)
+            if (Math.random() < 0.01) {
+                alphaAttribute.array[i] -= 0.05;
+                if (alphaAttribute.array[i] <= 0) {
+                    // 重置到中心，重新“出生”
+                    alphaAttribute.array[i] = 1.0;
+                    // 随机推到边缘
+                    const theta = Math.random() * Math.PI * 2;
+                    const phi = Math.random() * Math.PI;
+                    const radius = Math.random() * 15 + 10;
+                    positionArray[i*3] = Math.sin(phi) * Math.cos(theta) * radius;
+                    positionArray[i*3+1] = Math.sin(phi) * Math.sin(theta) * radius;
+                    positionArray[i*3+2] = Math.cos(phi) * radius;
+                }
             }
         }
-
-        if (count > 5) {
-            align.div(count);
-            align.setMag(1);
-            let steer = p5.Vector.sub(align, this.vel);
-            steer.limit(0.05);
-            this.acc.add(steer);
-        }
-
-        repel.setMag(0.5);
-        this.acc.add(repel);
-    }
-
-    update() {
-        // 物理更新
-        this.vel.add(this.acc);
-        this.vel.limit(4);
-        this.pos.add(this.vel);
-        this.acc.mult(0);
-
-        // 生命流逝
-        this.life++;
         
-        // 边界处理：像宇宙一样循环
-        if (this.pos.x < 0) this.pos.x = width;
-        if (this.pos.x > width) this.pos.x = 0;
-        if (this.pos.y < 0) this.pos.y = height;
-        if (this.pos.y > height) this.pos.y = 0;
+        alphaAttribute.needsUpdate = true;
+        geometry.attributes.position.needsUpdate = true;
 
-        // 绽放逻辑：模拟花朵盛开
-        if (this.life > this.maxLife * 0.3 && !this.isBloomed) {
-            this.isBloomed = true;
-        }
+        composer.render();
     }
+    animate();
 
-    show() {
-        // 计算生命阶段
-        let lifeRatio = this.life / this.maxLife;
-        let growth = min(lifeRatio * 2, 1); // 前半段生长，后半段维持
-        
-        // 动态颜色：模拟莫奈的光影变化
-        // 基础色相 + 缓慢的色相偏移（模拟时间流逝）
-        let hue = (this.baseHue + sin(frameCount * 0.01 + this.birthTime) * 10) % 360;
-        let sat = map(lifeRatio, 0, 1, 30, 10); // 饱和度随时间降低（枯萎感）
-        let bri = map(lifeRatio, 0, 1, 90, 60); // 亮度随时间降低（暮色感）
-        
-        // 如果是绽放期，增加闪烁
-        if (this.isBloomed && frameCount % 60 < 10) {
-            bri += 20;
-        }
-
-        // 动态大小：模拟呼吸和脉动（音阶的律动）
-        let pulse = 1 + 0.2 * sin(frameCount * 0.05 + this.birthTime);
-        let displaySize = this.size * pulse * growth;
-
-        // 半透明叠加，产生光晕
-        noStroke();
-        fill(hue, sat, bri, 0.7);
-        
-        // 使用圆角矩形或圆形，根据状态改变形态
-        if (displaySize > 4) {
-            // 使用ellipse模拟光点
-            ellipse(this.pos.x, this.pos.y, displaySize, displaySize * 0.5);
-        } else {
-            point(this.pos.x, this.pos.y);
-        }
-    }
-
-    isDead() {
-        return this.life >= this.maxLife;
-    }
-
-    rebirth() {
-        // 重置状态，回到中心
-        this.pos.set(width / 2, height / 2);
-        this.vel = p5.Vector.random2D().mult(random(1, 3));
-        this.life = 0;
-        this.maxLife = random(300, 800);
-        this.birthTime = frameCount;
-        this.isBloomed = false;
-        // 随机改变颜色基调
-        this.baseHue = random([60, 120, 210, 330]);
-    }
-}
-
-function windowResized() {
-    resizeCanvas(windowWidth, windowHeight);
-}
+    // --- 窗口自适应 ---
+    window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        composer.setSize(window.innerWidth, window.innerHeight);
+    });
 </script>
 </body>
 </html>
