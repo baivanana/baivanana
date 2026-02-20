@@ -2,202 +2,200 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Life and Particles</title>
+    <title>Standalone</title>
     <style>
-        body { margin: 0; overflow: hidden; background: #000; }
-        canvas { display: block; }
+        body { 
+            margin: 0; 
+            overflow: hidden; 
+            background-color: #0a0a14; /* 深蓝背景，模拟夜景 */
+            touch-action: none;
+        }
+        canvas { 
+            display: block; 
+        }
     </style>
 </head>
 <body>
-<script src="https://cdn.jsdelivr.net/npm/three@0.132.2/build/three.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.132.2/examples/js/postprocessing/EffectComposer.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.132.2/examples/js/postprocessing/RenderPass.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.132.2/examples/js/postprocessing/UnrealBloomPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.137.5/build/three.min.js"></script>
 <script>
+    // 稳定的版本锁定，避免本地加载失败
+    console.log("Three.js version:", THREE.REVISION);
+
     // --- 场景初始化 ---
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.setPixelRatio(window.devicePixelRatio || 1);
+    // 关键：关闭物理灯光衰减，手动控制辉光
+    renderer.outputEncoding = THREE.sRGBEncoding;
+    renderer.toneMapping = THREE.LinearToneMapping; // 避免过曝
     document.body.appendChild(renderer.domElement);
 
     // --- 相机位置 ---
-    camera.position.z = 30;
+    camera.position.z = 40;
 
-    // --- 配色 ---
-    const colors = [
-        new THREE.Color(0.1, 0.1, 0.3),   // 深蓝夜空
-        new THREE.Color(0.2, 0.4, 0.6),   // 水波蓝
-        new THREE.Color(0.8, 0.6, 0.9),   // 柔和紫光
-        new THREE.Color(0.9, 0.9, 0.4),   // 柠檬黄光
-        new THREE.Color(0.1, 0.3, 0.2),   // 暗绿荷叶
+    // --- 配色 (数组存储) ---
+    const monetColors = [
+        [0.1, 0.15, 0.3],   // 深蓝
+        [0.2, 0.4, 0.6],    // 水蓝
+        [0.5, 0.3, 0.6],    // 紫罗兰
+        [0.8, 0.7, 0.9],    // 柔粉
+        [0.1, 0.3, 0.2],    // 墨绿
+        [0.9, 0.8, 0.5]     // 柠檬黄
     ];
 
-    // --- 生成噪波纹理 (模拟颗粒感) ---
-    function generateTexture() {
-        const canvas = document.createElement('canvas');
-        canvas.width = 32;
-        canvas.height = 32;
-        const ctx = canvas.getContext('2d');
-        
-        // 绘制中心亮、边缘暗的圆形，模拟颗粒
-        const gradient = ctx.createRadialGradient(16, 16, 0, 16, 16, 16);
-        gradient.addColorStop(0, 'white');
-        gradient.addColorStop(1, 'transparent');
-        
-        ctx.fillStyle = gradient;
-        ctx.fillRect(0, 0, 32, 32);
-        
-        // 添加一点噪点颗粒感
-        for(let i=0; i<100; i++) {
-            const x = Math.random() * 32;
-            const y = Math.random() * 32;
-            ctx.fillStyle = `rgba(${Math.random()*255},${Math.random()*255},${Math.random()*255},0.5)`;
-            ctx.fillRect(x, y, 1, 1);
-        }
-        
-        return new THREE.CanvasTexture(canvas);
-    }
-
-    // --- 粒子系统 ---
-    const particleCount = 8000;
+    // --- 粒子数量 ---
+    const COUNT = 6000;
     const geometry = new THREE.BufferGeometry();
-    const positions = new Float32Array(particleCount * 3);
-    const sizes = new Float32Array(particleCount);
-    const colorArray = new Float32Array(particleCount * 3);
-    const alphas = new Float32Array(particleCount); // 控制透明度变化
 
-    for (let i = 0; i < particleCount; i++) {
+    // 位置
+    const positions = new Float32Array(COUNT * 3);
+    // 大小 (让每个粒子大小不同)
+    const sizes = new Float32Array(COUNT);
+    // 颜色索引 (因为不能直接传数组进shader uniform，用索引查表)
+    const colorIds = new Uint8Array(COUNT);
+    // 生命值/衰减系数 (控制闪烁和消亡)
+    const alphas = new Float32Array(COUNT);
+
+    for (let i = 0; i < COUNT; i++) {
         const i3 = i * 3;
-        // 随机位置 (球形分布)
-        const theta = Math.random() * Math.PI * 2;
-        const phi = Math.random() * Math.PI;
-        const radius = Math.random() * 15 + 5;
         
-        positions[i3] = Math.sin(phi) * Math.cos(theta) * radius;
-        positions[i3 + 1] = Math.sin(phi) * Math.sin(theta) * radius;
-        positions[i3 + 2] = Math.cos(phi) * radius;
+        // --- 位置：环形分布 (比球形更有画面感) ---
+        const angle = Math.random() * Math.PI * 2;
+        const radius = Math.random() * 25 + 10;
+        // Z轴稍微分散
+        const z = (Math.random() - 0.5) * 20;
+        
+        positions[i3] = Math.cos(angle) * radius;
+        positions[i3 + 1] = Math.sin(angle) * radius;
+        positions[i3 + 2] = z;
 
-        // 随机大小 (大小变化)
-        sizes[i] = Math.random() * 3 + 0.5;
+        // --- 大小：随机大小 ---
+        sizes[i] = Math.random() * 3 + 0.2; // 0.2px 到 3.2px
 
-        // 随机颜色
-        const col = colors[Math.floor(Math.random() * colors.length)];
-        colorArray[i3] = col.r;
-        colorArray[i3 + 1] = col.g;
-        colorArray[i3 + 2] = col.b;
+        // --- 颜色：随机索引 ---
+        colorIds[i] = Math.floor(Math.random() * monetColors.length);
 
-        // 初始透明度
-        alphas[i] = 1.0;
+        // --- 透明度：随机初始相位 ---
+        alphas[i] = Math.random();
     }
 
     geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    geometry.setAttribute('color', new THREE.BufferAttribute(colorArray, 3));
     geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+    geometry.setAttribute('colorId', new THREE.BufferAttribute(colorIds, 1));
     geometry.setAttribute('alpha', new THREE.BufferAttribute(alphas, 1));
 
-    // --- 着色器材质 (核心：立体光影 + 残影) ---
+    // --- 自定义着色器材质 (核心：立体光影 + 颗粒噪波) ---
     const material = new THREE.ShaderMaterial({
         uniforms: {
-            pointTexture: { value: generateTexture() },
-            time: { value: 0.0 }
+            time: { value: 0.0 },
+            resolution: { value: new THREE.Vector2(window.innerWidth, window.innerHeight) }
         },
         vertexShader: `
             attribute float size;
-            attribute vec3 color;
+            attribute float colorId;
             attribute float alpha;
             varying vec3 vColor;
             varying float vAlpha;
+            varying vec2 vUv;
             void main() {
-                vColor = color;
+                vUv = uv;
                 vAlpha = alpha;
-                vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-                // 根据距离调整大小，产生透视感
-                gl_PointSize = size * (100.0 / -mvPosition.z);
+                // 根据索引获取颜色 (手动查表)
+                if(colorId == 0.0) vColor = vec3(0.1, 0.15, 0.3);
+                else if(colorId == 1.0) vColor = vec3(0.2, 0.4, 0.6);
+                else if(colorId == 2.0) vColor = vec3(0.5, 0.3, 0.6);
+                else if(colorId == 3.0) vColor = vec3(0.8, 0.7, 0.9);
+                else if(colorId == 4.0) vColor = vec3(0.1, 0.3, 0.2);
+                else vColor = vec3(0.9, 0.8, 0.5);
+
+                // 动态位置：让粒子漂浮
+                vec3 pos = position;
+                pos.x += sin(time * 0.5 + position.x * 0.1) * 3.0;
+                pos.y += cos(time * 0.3 + position.y * 0.1) * 3.0;
+                pos.z += sin(time * 0.7 + position.z * 0.1) * 3.0;
+
+                vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
+                // 距离越近粒子越大
+                gl_PointSize = size * (150.0 / length(mvPosition.xyz));
                 gl_Position = projectionMatrix * mvPosition;
             }
         `,
         fragmentShader: `
-            uniform sampler2D pointTexture;
+            uniform float time;
             varying vec3 vColor;
             varying float vAlpha;
+            // --- 颗粒噪波函数 (核心：制造麻点感) ---
+            float noise(vec2 p) {
+                return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
+            }
             void main() {
-                vec4 texColor = texture2D(pointTexture, gl_PointCoord);
-                // 立体光照模拟：中心亮，边缘暗
-                float r = gl_PointCoord.x - 0.5;
-                float s = gl_PointCoord.y - 0.5;
-                float dist = length(vec2(r, s));
-                float centerGlow = 1.0 - smoothstep(0.4, 0.5, dist);
+                // --- 1. 创建圆形 (消除条形) ---
+                // gl_PointCoord 是 [0,1] 区间，转换为 [-1,1]
+                vec2 uv = gl_PointCoord * 2.0 - 1.0;
+                float dist = dot(uv, uv); // 距离中心的距离 (平方)
                 
-                // 残影效果：根据 alpha 值控制辉光
-                gl_FragColor = vec4(vColor, vAlpha * texColor.a * centerGlow);
-                // 模拟璀璨消亡：当 alpha 低时，增加一点亮光
-                if(vAlpha < 0.3) {
-                    gl_FragColor.rgb += 0.5 * (1.0 - vAlpha); // 消亡时更亮
-                }
+                // 如果是条形，说明是方形。我们强制裁剪成圆形，边缘加点噪波模拟颗粒轮廓
+                if(dist > 1.0) discard; 
+
+                // --- 2. 立体光影模拟 ---
+                // 模拟球体的法线向量 (z分量为 sqrt(1-u^2-v^2))
+                float z = sqrt(1.0 - dist);
+                vec3 normal = normalize(vec3(uv, z));
+                
+                // 假设光源在左上角
+                vec3 lightDir = normalize(vec3(0.5, 0.5, 1.0));
+                // 漫反射光照
+                float diff = max(dot(normal, lightDir), 0.0) * 0.6 + 0.4; // 0.4 是环境光
+
+                // --- 3. 颗粒纹理叠加 ---
+                // 使用高频噪波给粒子表面加“麻点”
+                float grain = noise(gl_PointCoord * 10.0); 
+                grain = mix(0.8, 1.2, grain); // 调整颗粒对比度
+                diff *= grain; // 光照乘以颗粒
+
+                // --- 4. 璀璨消亡效果 (残影) ---
+                // 模拟粒子闪烁：使用正弦波控制透明度，越小的粒子闪烁越快
+                float pulse = sin(time * 2.0 + vAlpha * 10.0) * 0.5 + 0.5;
+                // 残影拖尾：利用 alpha 混合
+                float alphaFactor = (vAlpha + pulse * 0.5) * 0.8;
+
+                // --- 5. 辉光模拟 (关键：之前黑屏是因为用了BloomPass，现在手写) ---
+                // 在边缘增加一层辉光
+                float glow = 1.0 - smoothstep(0.7, 1.0, dist); 
+                glow *= 0.5; // 辉光强度
+
+                // 最终颜色
+                vec3 finalColor = vColor * diff * (1.0 + glow); // 颜色乘以光照和辉光
+                gl_FragColor = vec4(finalColor, alphaFactor);
+                
+                // 深度写入关闭，防止黑屏遮挡
+                gl_FragColor.a *= 1.0 - dist; // alpha 从中心到边缘渐变为0
             }
         `,
         blending: THREE.AdditiveBlending,
         depthTest: true,
+        depthWrite: false, // 关键修复：解决黑屏遮挡问题
         transparent: true,
-        vertexColors: true
+        // side: THREE.DoubleSide // 点精灵默认就是双面
     });
 
-    const particles = new THREE.Points(geometry, material);
-    scene.add(particles);
+    const cloud = new THREE.Points(geometry, material);
+    scene.add(cloud);
 
-    // --- 后期处理：辉光 (Bloom) ---
-    const composer = new EffectComposer(renderer);
-    const renderPass = new RenderPass(scene, camera);
-    composer.addPass(renderPass);
-
-    const bloomPass = new UnrealBloomPass(
-        new THREE.Vector2(window.innerWidth, window.innerHeight),
-        1.5, // 强度
-        0.4, // 半径
-        0.85 // 阈值
-    );
-    composer.addPass(bloomPass);
-
-    // --- 动画控制 ---
-    let time = 0;
+    // --- 动画 ---
     function animate() {
         requestAnimationFrame(animate);
+        const t = performance.now() * 0.001; // 时间(秒)
         
-        time += 0.005;
-        material.uniforms.time.value = time;
-
+        material.uniforms.time.value = t;
+        
         // 缓慢旋转
-        particles.rotation.y += 0.0005;
-        particles.rotation.x += 0.0002;
+        cloud.rotation.y = t * 0.1;
+        cloud.rotation.x = Math.sin(t * 0.2) * 0.2;
 
-        // 粒子消亡与重生逻辑 (模拟残影渐渐消亡)
-        const alphaAttribute = geometry.attributes.alpha;
-        const positionArray = geometry.attributes.position.array;
-        
-        for (let i = 0; i < alphaAttribute.count; i++) {
-            // 随机缓慢降低透明度 (消亡)
-            if (Math.random() < 0.01) {
-                alphaAttribute.array[i] -= 0.05;
-                if (alphaAttribute.array[i] <= 0) {
-                    // 重置到中心，重新“出生”
-                    alphaAttribute.array[i] = 1.0;
-                    // 随机推到边缘
-                    const theta = Math.random() * Math.PI * 2;
-                    const phi = Math.random() * Math.PI;
-                    const radius = Math.random() * 15 + 10;
-                    positionArray[i*3] = Math.sin(phi) * Math.cos(theta) * radius;
-                    positionArray[i*3+1] = Math.sin(phi) * Math.sin(theta) * radius;
-                    positionArray[i*3+2] = Math.cos(phi) * radius;
-                }
-            }
-        }
-        
-        alphaAttribute.needsUpdate = true;
-        geometry.attributes.position.needsUpdate = true;
-
-        composer.render();
+        renderer.render(scene, camera);
     }
     animate();
 
@@ -206,7 +204,7 @@
         camera.aspect = window.innerWidth / window.innerHeight;
         camera.updateProjectionMatrix();
         renderer.setSize(window.innerWidth, window.innerHeight);
-        composer.setSize(window.innerWidth, window.innerHeight);
+        material.uniforms.resolution.value.set(window.innerWidth, window.innerHeight);
     });
 </script>
 </body>
